@@ -59,8 +59,14 @@ def get_intraday(symbol):
     return None
 
 def calculate_vwap(df):
+    if df is None or len(df) == 0:
+        return None
+
+    df = df.copy()
+
     df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
     df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+
     return df
 
 def build_model(days=45):
