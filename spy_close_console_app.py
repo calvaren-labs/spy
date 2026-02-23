@@ -17,19 +17,21 @@ MODEL_VERSION = "v1.0 – Continuous Score + Late-Day Amplification"
 # DATA FUNCTIONS
 # -------------------------------
 
-@st.cache_data(ttl=60)
 def get_intraday(symbol):
-    df = yf.download(symbol, period="2d", interval="1m", progress=False)
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="1d", interval="1m", prepost=True)
 
-    if df is None or len(df) == 0:
+        if df is None or len(df) == 0:
+            return None
+
+        df = df.dropna()
+
+        return df
+
+    except Exception as e:
+        st.write("Data error:", e)
         return None
-
-    df = df.dropna()
-
-    # Keep only today
-    df = df[df.index.date == df.index[-1].date()]
-
-    return df
 
 
 def calculate_vwap(df):
