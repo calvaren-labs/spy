@@ -31,9 +31,9 @@ def get_intraday():
 
     return df
 
-spy = get_intraday()
-
-if spy is None:
+try:
+    spy = get_intraday()
+except Exception:
     st.warning("Data temporarily unavailable (Yahoo rate limit or outside market hours).")
     st.stop()
 
