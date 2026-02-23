@@ -176,7 +176,6 @@ def classify(spy_df, vix_df):
     else:
         range_pos = (price - day_low) / (day_high - day_low)
 
-    # ----- VIX handling (fixes previous pandas error)
     if vix_df is None or len(vix_df) < 30:
         vix_change = 0
     else:
@@ -187,25 +186,24 @@ def classify(spy_df, vix_df):
         )
 
     score = 0
-if vwap_dist > VWAP_THRESHOLD:
-    score += 1
-if range_pos > RANGE_ACCEPTANCE:
-    score += 1
-if vix_change < 0:
-    score += 1
-if vwap_dist < -VWAP_THRESHOLD:
-    score -= 1
-if range_pos < LOW_ACCEPTANCE:
-    score -= 1
-if vix_change > 0:
-    score -= 1
+    if vwap_dist > VWAP_THRESHOLD:
+        score += 1
+    if range_pos > RANGE_ACCEPTANCE:
+        score += 1
+    if vix_change < 0:
+        score += 1
+    if vwap_dist < -VWAP_THRESHOLD:
+        score -= 1
+    if range_pos < LOW_ACCEPTANCE:
+        score -= 1
+    if vix_change > 0:
+        score -= 1
 
-# ----- LATE-DAY AMPLIFICATION -----
-now = datetime.now(pytz.timezone("US/Eastern"))
-
-if now.hour == 15 and now.minute >= 30:
-    time_progress = (now.minute - 30) / 30
-    score *= (1 + 0.4 * time_progress)
+    # ----- LATE-DAY AMPLIFICATION -----
+    now = datetime.now(pytz.timezone("US/Eastern"))
+    if now.hour == 15 and now.minute >= 30:
+        time_progress = (now.minute - 30) / 30
+        score *= (1 + 0.4 * time_progress)
 
     if score >= 2:
         bias, arrow, color = "CONTINUATION UP", "↑", "#00ff99"
