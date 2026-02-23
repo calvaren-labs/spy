@@ -81,12 +81,15 @@ def calculate_vwap(df):
 
     df = df.copy()
 
+    # ---- FIX MULTIINDEX COLUMNS ----
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     required_cols = ["High", "Low", "Close", "Volume"]
     for col in required_cols:
         if col not in df.columns:
             return None
 
-    # Ensure numeric
     df["High"] = pd.to_numeric(df["High"], errors="coerce")
     df["Low"] = pd.to_numeric(df["Low"], errors="coerce")
     df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
