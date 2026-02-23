@@ -207,7 +207,7 @@ def classify(spy_df, vix_df):
     else:
         bias, arrow, color = "MIXED / CHOP", "→", "#ffaa00"
 
-    confidence = int((score + 3) / 6 * 100)
+    confidence = int(abs(score) / 3 * 100)
 
     return price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence
 
