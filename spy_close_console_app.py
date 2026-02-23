@@ -28,8 +28,20 @@ def get_intraday(symbol):
 
 def calculate_vwap(df):
     df = df.copy()
+
+    # Ensure numeric columns
+    for col in ["High", "Low", "Close", "Volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["High", "Low", "Close", "Volume"])
+
     df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
-    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+
+    cumulative_volume = df["Volume"].cumsum()
+    cumulative_tp_volume = (df["TP"] * df["Volume"]).cumsum()
+
+    df["VWAP"] = cumulative_tp_volume / cumulative_volume
+
     return df
 
 
