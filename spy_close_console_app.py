@@ -1,191 +1,69 @@
-# SPY Close Console with ML Overlay
-# Deploy on Streamlit Cloud
-
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
+import yfinance as yf
 from datetime import datetime
 import pytz
-from streamlit_autorefresh import st_autorefresh
-from sklearn.linear_model import LogisticRegression
-import time
+
+# -------------------------------
+# CONFIG
+# -------------------------------
 
 SYMBOL = "SPY"
 VIX_SYMBOL = "^VIX"
+VWAP_THRESHOLD = 0.002  # 0.2%
+MODEL_VERSION = "v1.0 – Continuous Score + Late-Day Amplification"
 
-VWAP_THRESHOLD = 0.0015
-RANGE_ACCEPTANCE = 0.80
-LOW_ACCEPTANCE = 0.20
+# -------------------------------
+# DATA FUNCTIONS
+# -------------------------------
 
-st.set_page_config(page_title="SPY Close Console", layout="wide")
-
-# ---------------- DARK STYLE ----------------
-st.markdown("""
-<style>
-body {background-color: #0e1117; color: #e6e6e6;}
-</style>
-""", unsafe_allow_html=True)
-
-st.title("SPY 3:30pm Close Console")
-
-# ---------------- AUTO REFRESH ----------------
-eastern = pytz.timezone("US/Eastern")
-now = datetime.now(eastern)
-
-if now.hour > 15 or (now.hour == 15 and now.minute >= 25):
-    st_autorefresh(interval=30 * 1000, key="late_refresh")
-
-# ---------------- FUNCTIONS ----------------
-
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60)
 def get_intraday(symbol):
-
-    # Try 1-minute first
-    for attempt in range(2):
-        try:
-            df = yf.download(
-                symbol,
-                period="1d",
-                interval="1m",
-                progress=False,
-                threads=False
-            )
-            if df is not None and len(df) > 5:
-                return df
-        except:
-            pass
-        time.sleep(1)
-
-    # Fallback to 5-minute
-    try:
-        df = yf.download(
-            symbol,
-            period="1d",
-            interval="5m",
-            progress=False,
-            threads=False
-        )
-        if df is not None and len(df) > 2:
-            return df
-    except:
-        pass
-
-    return None
-
-
-def calculate_vwap(df):
+    df = yf.download(symbol, period="1d", interval="1m", progress=False)
     if df is None or len(df) == 0:
         return None
-
-    df = df.copy()
-
-    # ---- FIX MULTIINDEX COLUMNS ----
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    required_cols = ["High", "Low", "Close", "Volume"]
-    for col in required_cols:
-        if col not in df.columns:
-            return None
-
-    df["High"] = pd.to_numeric(df["High"], errors="coerce")
-    df["Low"] = pd.to_numeric(df["Low"], errors="coerce")
-    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
-    df["Volume"] = pd.to_numeric(df["Volume"], errors="coerce")
-
-    df.dropna(subset=["High", "Low", "Close", "Volume"], inplace=True)
-
-    if len(df) == 0:
-        return None
-
-    df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
-
-    vol_cum = df["Volume"].cumsum()
-    if (vol_cum == 0).all():
-        return None
-
-    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / vol_cum
-
+    df = df.dropna()
     return df
 
 
-def build_model(days=45):
-    spy = yf.download(SYMBOL, period=f"{days}d", interval="1m", progress=False)
+def calculate_vwap(df):
+    df = df.copy()
+    df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
+    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+    return df
 
-    if spy is None or len(spy) < 300:
-        return None
 
-    spy["Date"] = spy.index.date
-    rows = []
-
-    for d in spy["Date"].unique():
-        day = spy[spy["Date"] == d]
-        if len(day) < 350:
-            continue
-        try:
-            snap = day.iloc[330]
-            close = day.iloc[-1]
-            vwap = (day["Close"] * day["Volume"]).cumsum() / day["Volume"].cumsum()
-            vwap_330 = vwap.iloc[330]
-            day_high = day["High"].max()
-            day_low = day["Low"].min()
-
-            vwap_dist = (snap["Close"] - vwap_330) / vwap_330
-            range_pos = (snap["Close"] - day_low) / (day_high - day_low)
-            momentum = (snap["Close"] - day.iloc[300]["Close"]) / day.iloc[300]["Close"]
-            ret = (close["Close"] - snap["Close"]) / snap["Close"]
-
-            rows.append([vwap_dist, range_pos, momentum, int(ret > 0)])
-        except:
-            continue
-
-    df = pd.DataFrame(rows, columns=["vwap_dist", "range_pos", "momentum", "target"])
-
-    if len(df) < 10:
-        return None
-
-    X = df[["vwap_dist", "range_pos", "momentum"]]
-    y = df["target"]
-
-    model = LogisticRegression()
-    model.fit(X, y)
-    return model
-
+# -------------------------------
+# CLASSIFICATION ENGINE
+# -------------------------------
 
 def classify(spy_df, vix_df):
 
-    if spy_df is None or len(spy_df) < 10:
-        return 0, 0, 0.5, 0, 0, "NO DATA", "→", "#ffaa00", 50
+    if spy_df is None or len(spy_df) < 30:
+        return 0, 0, 0.5, 0, 0, "NO DATA", "→", "#ffaa00", 0
 
     latest = spy_df.iloc[-1]
-    price = float(latest["Close"])
-    vwap = float(latest["VWAP"])
 
-    if vwap == 0:
-        return price, vwap, 0.5, 0, 0, "NO DATA", "→", "#ffaa00", 50
+    price = latest["Close"]
+    vwap = latest["VWAP"]
 
     vwap_dist = (price - vwap) / vwap
 
-    day_high = float(spy_df["High"].max())
-    day_low = float(spy_df["Low"].min())
+    day_high = spy_df["High"].max()
+    day_low = spy_df["Low"].min()
+    range_pos = 0.5 if day_high == day_low else (price - day_low) / (day_high - day_low)
 
-    if day_high == day_low:
-        range_pos = 0.5
-    else:
-        range_pos = (price - day_low) / (day_high - day_low)
-
+    # VIX change (30 min lookback)
     if vix_df is None or len(vix_df) < 30:
         vix_change = 0
     else:
-        vix_close = vix_df["Close"]
-        vix_change = float(
-            (vix_close.iloc[-1] - vix_close.iloc[-30]) /
-            vix_close.iloc[-30]
-        )
+        vix_change = (
+            vix_df["Close"].iloc[-1] - vix_df["Close"].iloc[-30]
+        ) / vix_df["Close"].iloc[-30]
 
-    # ----- CONTINUOUS SCORING -----
+    # -------------------------------
+    # CONTINUOUS SCORING
+    # -------------------------------
 
     score = 0
 
@@ -195,101 +73,82 @@ def classify(spy_df, vix_df):
     # Range contribution (centered at 0.5)
     score += (range_pos - 0.5) * 2
 
-    # VIX contribution (inverted because rising VIX = bearish)
+    # VIX contribution (rising VIX = bearish)
     score -= vix_change * 5
 
-    # ----- LATE-DAY AMPLIFICATION -----
+    # -------------------------------
+    # LATE-DAY AMPLIFICATION
+    # -------------------------------
+
     now = datetime.now(pytz.timezone("US/Eastern"))
     if now.hour == 15 and now.minute >= 30:
         time_progress = (now.minute - 30) / 30
         score *= (1 + 0.4 * time_progress)
 
-    if score >= 2:
-        bias, arrow, color = "CONTINUATION UP", "↑", "#00ff99"
-    elif score <= -2:
-        bias, arrow, color = "CONTINUATION DOWN", "↓", "#ff4d4d"
-    else:
-        bias, arrow, color = "MIXED / CHOP", "→", "#ffaa00"
+    # -------------------------------
+    # CLASSIFICATION
+    # -------------------------------
 
-    confidence = int(min(90, (abs(score) ** 1.3) * 18))
+    if score > 1:
+        bias = "CONTINUATION UP"
+        arrow = "↑"
+        color = "#00cc66"
+    elif score < -1:
+        bias = "CONTINUATION DOWN"
+        arrow = "↓"
+        color = "#ff4444"
+    else:
+        bias = "MIXED / CHOP"
+        arrow = "→"
+        color = "#ffaa00"
+
+    confidence = int(min(90, abs(score) * 20))
+
+    # Internal logging for testing
+    print({
+        "score": round(score, 3),
+        "vwap_dist": round(vwap_dist, 4),
+        "range_pos": round(range_pos, 3),
+        "vix_change": round(vix_change, 4),
+        "confidence": confidence
+    })
 
     return price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence
 
 
-# ---------------- LOAD DATA ----------------
+# -------------------------------
+# STREAMLIT APP
+# -------------------------------
 
-with st.spinner("Loading live data..."):
-    raw_spy = get_intraday(SYMBOL)
-    spy = calculate_vwap(raw_spy)
-    vix = get_intraday(VIX_SYMBOL)
+st.set_page_config(layout="wide")
+st.title("SPY 3:30pm Close Console")
+st.caption(MODEL_VERSION)
 
-    price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence = classify(spy, vix)
+spy_raw = get_intraday(SYMBOL)
+vix_raw = get_intraday(VIX_SYMBOL)
 
+if spy_raw is not None:
+    spy = calculate_vwap(spy_raw)
+    result = classify(spy, vix_raw)
 
-# ---------------- ML PROBABILITY ----------------
+    price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence = result
 
-model = build_model(45)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("SPY", f"{price:.2f}")
+    col2.metric("VWAP", f"{vwap:.2f}")
+    col3.metric("Range %", f"{range_pos * 100:.1f}%")
 
-ml_prob = None
-
-if model is not None and spy is not None and len(spy) > 30:
-    momentum = (spy["Close"].iloc[-1] - spy["Close"].iloc[-30]) / spy["Close"].iloc[-30]
-    X_live = np.array([[vwap_dist, range_pos, momentum]])
-    ml_prob = round(model.predict_proba(X_live)[0][1] * 100, 1)
-
-
-# ---------------- METRICS ----------------
-
-col1, col2, col3 = st.columns(3)
-col1.metric("SPY", round(price, 2))
-col2.metric("VWAP", round(vwap, 2))
-col3.metric("Range %", f"{round(range_pos*100,1)}%")
-
-
-# ---------------- DIRECTION PANEL ----------------
-
-st.markdown(f"""
-<div style='padding:20px; background-color:#1c1f26; border-radius:8px; text-align:center;'>
-<h1 style='color:{color}; font-size:48px;'>{arrow}</h1>
-<h2 style='color:{color};'>{bias}</h2>
-<h3 style='color:white;'>Confidence: {confidence}%</h3>
-</div>
-""", unsafe_allow_html=True)
-
-
-if ml_prob is not None:
-    st.markdown("### ML Probability Close Higher")
-    if ml_prob > 60:
-        st.success(f"{ml_prob}%")
-    elif ml_prob < 40:
-        st.error(f"{ml_prob}%")
-    else:
-        st.warning(f"{ml_prob}%")
-
-
-# ---------------- INTRADAY CHART ----------------
-
-if spy is not None and len(spy) > 0:
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=spy.index,
-            y=spy["Close"],
-            mode="lines",
-            name="SPY",
-            line=dict(color="#00b3ff")
-        )
+    st.markdown(
+        f"""
+        <div style="background-color:#111822;padding:40px;border-radius:10px;text-align:center;">
+            <h1 style="color:{color};">{arrow}</h1>
+            <h2 style="color:{color};">{bias}</h2>
+            <h4 style="color:white;">Confidence: {confidence}%</h4>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-    fig.add_trace(
-        go.Scatter(
-            x=spy.index,
-            y=spy["VWAP"],
-            mode="lines",
-            name="VWAP",
-            line=dict(color="#ffffff", dash="dash")
-        )
-    )
-    fig.update_layout(template="plotly_dark", height=600)
-    st.plotly_chart(fig, use_container_width=True)
+
+    st.line_chart(spy["Close"])
 else:
-    st.info("Waiting for intraday data...")
+    st.warning("No data available.")
