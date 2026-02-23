@@ -193,10 +193,27 @@ if ml_prob is not None:
         st.warning(f"{ml_prob}%")
 
 # ---------------- INTRADAY CHART ----------------
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=spy.index, y=spy["Close"], mode='lines', name="SPY", line=dict(color="#00b3ff")))
-fig.add_trace(go.Scatter(x=spy.index, y=spy["VWAP"], mode='lines', name="VWAP", line=dict(color="#ffffff", dash="dash")))
-fig.update_layout(template="plotly_dark", height=600)
-st.plotly_chart(fig, use_container_width=True)
-
-st.caption("Auto-refresh every 30 seconds after 3:25pm ET.")
+if spy is not None and len(spy) > 0:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=spy.index,
+            y=spy["Close"],
+            mode="lines",
+            name="SPY",
+            line=dict(color="#00b3ff")
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=spy.index,
+            y=spy["VWAP"],
+            mode="lines",
+            name="VWAP",
+            line=dict(color="#ffffff", dash="dash")
+        )
+    )
+    fig.update_layout(template="plotly_dark", height=600)
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("Waiting for intraday data...")
