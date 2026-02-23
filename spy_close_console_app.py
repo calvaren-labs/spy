@@ -22,17 +22,14 @@ def get_intraday():
     if df is None or df.empty:
         raise ValueError("Empty dataset")
 
+    df = df.reset_index()
+    df["Datetime"] = pd.to_datetime(df["Datetime"])
+    df.set_index("Datetime", inplace=True)
+
+    df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
+    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+
     return df
-
-        df = df.reset_index()
-        df["Datetime"] = pd.to_datetime(df["Datetime"])
-        df.set_index("Datetime", inplace=True)
-
-        # VWAP
-        df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
-        df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
-
-        return df
 
     except Exception:
         return None
