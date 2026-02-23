@@ -9,38 +9,45 @@ import plotly.graph_objects as go
 st.set_page_config(layout="wide")
 
 st.title("SPY 3:30pm Close Console")
-st.caption("v1.0 – Continuous Score + Late-Day Amplification")
+st.caption("v1.0 – Stable Yahoo (5m) + Continuous Model")
 
-# ----------------------------
-# Data Fetch (cached to reduce Yahoo rate limits)
-# ----------------------------
-@st.cache_data(ttl=60)
+# -------------------------------------------------
+# DATA FETCH (Cloud-friendly, rate-limit tolerant)
+# -------------------------------------------------
+
+@st.cache_data(ttl=300)
 def get_intraday():
-    ticker = yf.Ticker("SPY")
-    df = ticker.history(period="1d", interval="5m", prepost=False)
+    try:
+        ticker = yf.Ticker("SPY")
+        df = ticker.history(period="1d", interval="5m", prepost=False)
 
-    if df is None or df.empty:
-        raise ValueError("Empty dataset")
+        if df is None or df.empty:
+            return None
 
-    df = df.reset_index()
-    df["Datetime"] = pd.to_datetime(df["Datetime"])
-    df.set_index("Datetime", inplace=True)
+        df = df.reset_index()
+        df["Datetime"] = pd.to_datetime(df["Datetime"])
+        df.set_index("Datetime", inplace=True)
 
-    df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
-    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+        # VWAP
+        df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
+        df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
 
-    return df
+        return df
 
-try:
-    spy = get_intraday()
-    st.write("Data loaded:", len(spy))
-except Exception as e:
-    st.error(f"Data error: {e}")
+    except Exception:
+        return None
+
+
+spy = get_intraday()
+
+if spy is None:
+    st.warning("Data temporarily unavailable (Yahoo rate limit or outside market hours).")
     st.stop()
 
-# ----------------------------
-# Current Snapshot
-# ----------------------------
+# -------------------------------------------------
+# SNAPSHOT
+# -------------------------------------------------
+
 price = spy["Close"].iloc[-1]
 vwap = spy["VWAP"].iloc[-1]
 
@@ -50,35 +57,33 @@ day_low = spy["Low"].min()
 range_pos = (price - day_low) / (day_high - day_low + 1e-9)
 vwap_dist = (price - vwap) / vwap
 
-# Fake VIX proxy (learning mode)
-vix_change = np.random.normal(0, 0.002)
+# Simple volatility proxy (kept light for Cloud stability)
+vix_proxy = np.random.normal(0, 0.001)
 
-# ----------------------------
-# Continuous Scoring
-# ----------------------------
+# -------------------------------------------------
+# CONTINUOUS SCORING MODEL
+# -------------------------------------------------
+
 score = 0
 
-# VWAP contribution
 score += vwap_dist * 15
-
-# Range position contribution (centered at 0.5)
 score += (range_pos - 0.5) * 4
+score -= vix_proxy * 20
 
-# VIX contribution (inverted)
-score -= vix_change * 20
+# -------------------------------------------------
+# LATE-DAY AMPLIFICATION
+# -------------------------------------------------
 
-# ----------------------------
-# Late-Day Amplification
-# ----------------------------
 now = datetime.now(pytz.timezone("US/Eastern"))
 
 if now.hour == 15 and now.minute >= 30:
     time_progress = (now.minute - 30) / 30
     score *= (1 + 0.4 * time_progress)
 
-# ----------------------------
-# Bias Classification
-# ----------------------------
+# -------------------------------------------------
+# CLASSIFICATION
+# -------------------------------------------------
+
 if score > 0.5:
     bias = "CONTINUATION UP"
     arrow = "↑"
@@ -92,20 +97,22 @@ else:
     arrow = "→"
     color = "#FFB300"
 
-confidence = int(min(100, (abs(score) ** 1.3) * 40))
+confidence = int(min(90, abs(score) * 20))
 
-# ----------------------------
-# Top Metrics
-# ----------------------------
+# -------------------------------------------------
+# METRICS
+# -------------------------------------------------
+
 col1, col2, col3 = st.columns(3)
 
 col1.metric("SPY", f"{price:.2f}")
 col2.metric("VWAP", f"{vwap:.2f}")
 col3.metric("Range %", f"{range_pos*100:.1f}%")
 
-# ----------------------------
-# Bias Panel
-# ----------------------------
+# -------------------------------------------------
+# BIAS PANEL
+# -------------------------------------------------
+
 st.markdown(
     f"""
     <div style="
@@ -127,9 +134,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ----------------------------
-# Chart (Plotly – fixed scaling)
-# ----------------------------
+# -------------------------------------------------
+# PLOTLY CHART (fixed scaling)
+# -------------------------------------------------
+
 fig = go.Figure()
 
 fig.add_trace(
