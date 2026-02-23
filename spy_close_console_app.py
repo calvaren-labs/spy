@@ -160,45 +160,45 @@ def classify(spy_df, vix_df):
         return 0, 0, 0.5, 0, 0, "NO DATA", "→", "#ffaa00", 50
 
     latest = spy_df.iloc[-1]
-    price = latest["Close"]
-    vwap = latest["VWAP"]
+    price = float(latest["Close"])
+    vwap = float(latest["VWAP"])
+
+    if vwap == 0:
+        return price, vwap, 0.5, 0, 0, "NO DATA", "→", "#ffaa00", 50
 
     vwap_dist = (price - vwap) / vwap
 
-    day_high = spy_df["High"].max()
-    day_low = spy_df["Low"].min()
+    day_high = float(spy_df["High"].max())
+    day_low = float(spy_df["Low"].min())
 
-    range_pos = 0.5 if day_high == day_low else (price - day_low) / (day_high - day_low)
+    if day_high == day_low:
+        range_pos = 0.5
+    else:
+        range_pos = (price - day_low) / (day_high - day_low)
 
-  # ---- VIX handling ----
-if vix_df is None or len(vix_df) < 30:
-    vix_change = 0
-else:
-    vix_df = vix_df.copy()
-
-    if isinstance(vix_df.columns, pd.MultiIndex):
-        vix_df.columns = vix_df.columns.get_level_values(0)
-
-    if "Close" not in vix_df.columns:
+    # ----- VIX handling (fixes previous pandas error)
+    if vix_df is None or len(vix_df) < 30:
         vix_change = 0
     else:
-        close_series = pd.to_numeric(vix_df["Close"], errors="coerce")
-        close_series = close_series.dropna()
-
-        if len(close_series) < 30:
-            vix_change = 0
-        else:
-            latest = float(close_series.iloc[-1])
-            prior = float(close_series.iloc[-30])
-            vix_change = (latest - prior) / prior
+        vix_close = vix_df["Close"]
+        vix_change = float(
+            (vix_close.iloc[-1] - vix_close.iloc[-30]) /
+            vix_close.iloc[-30]
+        )
 
     score = 0
-    if vwap_dist > VWAP_THRESHOLD: score += 1
-    if range_pos > RANGE_ACCEPTANCE: score += 1
-    if vix_change < 0: score += 1
-    if vwap_dist < -VWAP_THRESHOLD: score -= 1
-    if range_pos < LOW_ACCEPTANCE: score -= 1
-    if vix_change > 0: score -= 1
+    if vwap_dist > VWAP_THRESHOLD:
+        score += 1
+    if range_pos > RANGE_ACCEPTANCE:
+        score += 1
+    if vix_change < 0:
+        score += 1
+    if vwap_dist < -VWAP_THRESHOLD:
+        score -= 1
+    if range_pos < LOW_ACCEPTANCE:
+        score -= 1
+    if vix_change > 0:
+        score -= 1
 
     if score >= 2:
         bias, arrow, color = "CONTINUATION UP", "↑", "#00ff99"
