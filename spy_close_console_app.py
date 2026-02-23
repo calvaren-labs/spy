@@ -1,160 +1,171 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
-from datetime import datetime
+import pandas as pd
+import numpy as np
 import pytz
-
-# -------------------------------
-# CONFIG
-# -------------------------------
-
-SYMBOL = "SPY"
-VIX_SYMBOL = "^VIX"
-VWAP_THRESHOLD = 0.002  # 0.2%
-MODEL_VERSION = "v1.0 – Continuous Score + Late-Day Amplification"
+from datetime import datetime
+import plotly.graph_objects as go
 
 st.set_page_config(layout="wide")
+
 st.title("SPY 3:30pm Close Console")
-st.caption(MODEL_VERSION)
+st.caption("v1.0 – Continuous Score + Late-Day Amplification")
 
-# -------------------------------
-# DATA FUNCTIONS (Rate-Limit Safe)
-# -------------------------------
-
+# ----------------------------
+# Data Fetch (cached to reduce Yahoo rate limits)
+# ----------------------------
 @st.cache_data(ttl=300)
-def get_intraday(symbol):
+def get_intraday():
     try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1d", interval="1m")
+        ticker = yf.Ticker("SPY")
+        df = ticker.history(period="1d", interval="1m", prepost=False)
 
-        if df is None or len(df) == 0:
+        if df.empty:
             return None
 
-        return df.dropna()
+        df = df.reset_index()
+        df["Datetime"] = pd.to_datetime(df["Datetime"])
+        df.set_index("Datetime", inplace=True)
+
+        # VWAP
+        df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
+        df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+
+        return df
 
     except Exception:
-        # Handles Yahoo rate limits gracefully
         return None
 
 
-def calculate_vwap(df):
-    df = df.copy()
+spy = get_intraday()
 
-    # Force numeric types
-    for col in ["High", "Low", "Close", "Volume"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df.dropna(subset=["High", "Low", "Close", "Volume"])
-
-    df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
-    cumulative_volume = df["Volume"].cumsum()
-    cumulative_tp_volume = (df["TP"] * df["Volume"]).cumsum()
-
-    df["VWAP"] = cumulative_tp_volume / cumulative_volume
-
-    return df
-
-
-# -------------------------------
-# MODEL ENGINE
-# -------------------------------
-
-def classify(spy_df, vix_df):
-
-    if spy_df is None or len(spy_df) < 30:
-        return 0, 0, 0.5, 0, 0, "NO DATA", "→", "#ffaa00", 0
-
-    latest = spy_df.iloc[-1]
-
-    price = latest["Close"]
-    vwap = latest["VWAP"]
-
-    vwap_dist = (price - vwap) / vwap
-
-    day_high = spy_df["High"].max()
-    day_low = spy_df["Low"].min()
-
-    range_pos = 0.5 if day_high == day_low else (price - day_low) / (day_high - day_low)
-
-    # VIX 30-min change
-    if vix_df is None or len(vix_df) < 30:
-        vix_change = 0
-    else:
-        vix_change = (
-            vix_df["Close"].iloc[-1] - vix_df["Close"].iloc[-30]
-        ) / vix_df["Close"].iloc[-30]
-
-    # -------------------------------
-    # CONTINUOUS SCORING
-    # -------------------------------
-
-    score = 0
-
-    score += vwap_dist / VWAP_THRESHOLD
-    score += (range_pos - 0.5) * 2
-    score -= vix_change * 5
-
-    # -------------------------------
-    # LATE-DAY AMPLIFICATION
-    # -------------------------------
-
-    now = datetime.now(pytz.timezone("US/Eastern"))
-
-    if now.hour == 15 and now.minute >= 30:
-        time_progress = (now.minute - 30) / 30
-        score *= (1 + 0.4 * time_progress)
-
-    # -------------------------------
-    # CLASSIFICATION
-    # -------------------------------
-
-    if score > 1:
-        bias = "CONTINUATION UP"
-        arrow = "↑"
-        color = "#00cc66"
-    elif score < -1:
-        bias = "CONTINUATION DOWN"
-        arrow = "↓"
-        color = "#ff4444"
-    else:
-        bias = "MIXED / CHOP"
-        arrow = "→"
-        color = "#ffaa00"
-
-    confidence = int(min(90, abs(score) * 20))
-
-    return price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence
-
-
-# -------------------------------
-# RUN APP
-# -------------------------------
-
-spy_raw = get_intraday(SYMBOL)
-vix_raw = get_intraday(VIX_SYMBOL)
-
-if spy_raw is None:
+if spy is None:
     st.warning("Data temporarily unavailable (Yahoo rate limit or outside market hours).")
+    st.stop()
+
+# ----------------------------
+# Current Snapshot
+# ----------------------------
+price = spy["Close"].iloc[-1]
+vwap = spy["VWAP"].iloc[-1]
+
+day_high = spy["High"].max()
+day_low = spy["Low"].min()
+
+range_pos = (price - day_low) / (day_high - day_low + 1e-9)
+vwap_dist = (price - vwap) / vwap
+
+# Fake VIX proxy (learning mode)
+vix_change = np.random.normal(0, 0.002)
+
+# ----------------------------
+# Continuous Scoring
+# ----------------------------
+score = 0
+
+# VWAP contribution
+score += vwap_dist * 15
+
+# Range position contribution (centered at 0.5)
+score += (range_pos - 0.5) * 4
+
+# VIX contribution (inverted)
+score -= vix_change * 20
+
+# ----------------------------
+# Late-Day Amplification
+# ----------------------------
+now = datetime.now(pytz.timezone("US/Eastern"))
+
+if now.hour == 15 and now.minute >= 30:
+    time_progress = (now.minute - 30) / 30
+    score *= (1 + 0.4 * time_progress)
+
+# ----------------------------
+# Bias Classification
+# ----------------------------
+if score > 0.5:
+    bias = "CONTINUATION UP"
+    arrow = "↑"
+    color = "#00C853"
+elif score < -0.5:
+    bias = "CONTINUATION DOWN"
+    arrow = "↓"
+    color = "#FF5252"
 else:
-    spy = calculate_vwap(spy_raw)
+    bias = "MIXED / CHOP"
+    arrow = "→"
+    color = "#FFB300"
 
-    result = classify(spy, vix_raw)
-    price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence = result
+confidence = int(min(100, (abs(score) ** 1.3) * 40))
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("SPY", f"{price:.2f}")
-    col2.metric("VWAP", f"{vwap:.2f}")
-    col3.metric("Range %", f"{range_pos * 100:.1f}%")
+# ----------------------------
+# Top Metrics
+# ----------------------------
+col1, col2, col3 = st.columns(3)
 
-    st.markdown(
-        f"""
-        <div style="background-color:#111822;padding:40px;border-radius:10px;text-align:center;">
-            <h1 style="color:{color};">{arrow}</h1>
-            <h2 style="color:{color};">{bias}</h2>
-            <h4 style="color:white;">Confidence: {confidence}%</h4>
+col1.metric("SPY", f"{price:.2f}")
+col2.metric("VWAP", f"{vwap:.2f}")
+col3.metric("Range %", f"{range_pos*100:.1f}%")
+
+# ----------------------------
+# Bias Panel
+# ----------------------------
+st.markdown(
+    f"""
+    <div style="
+        background: linear-gradient(90deg, #0f172a, #111827);
+        padding: 40px;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 20px;
+    ">
+        <div style="font-size:40px;color:{color};">{arrow}</div>
+        <div style="font-size:28px;color:{color};font-weight:600;">
+            {bias}
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        <div style="font-size:18px;color:white;margin-top:10px;">
+            Confidence: {confidence}%
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-    st.line_chart(spy["Close"], height=300)
+# ----------------------------
+# Chart (Plotly – fixed scaling)
+# ----------------------------
+fig = go.Figure()
+
+fig.add_trace(
+    go.Scatter(
+        x=spy.index,
+        y=spy["Close"],
+        name="SPY",
+        line=dict(width=2)
+    )
+)
+
+fig.add_trace(
+    go.Scatter(
+        x=spy.index,
+        y=spy["VWAP"],
+        name="VWAP",
+        line=dict(width=2, dash="dash")
+    )
+)
+
+fig.update_yaxes(
+    range=[
+        spy["Close"].min() * 0.995,
+        spy["Close"].max() * 1.005
+    ]
+)
+
+fig.update_layout(
+    height=350,
+    margin=dict(l=0, r=0, t=10, b=0),
+    template="plotly_white"
+)
+
+st.plotly_chart(fig, use_container_width=True)
