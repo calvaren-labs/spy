@@ -37,8 +37,26 @@ if now.hour > 15 or (now.hour == 15 and now.minute >= 25):
     st_autorefresh(interval=30 * 1000, key="late_refresh")
 
 # ---------------- FUNCTIONS ----------------
+import time
+
+@st.cache_data(ttl=30)
 def get_intraday(symbol):
-    return yf.download(symbol, period="1d", interval="1m", progress=False)
+    for attempt in range(3):
+        try:
+            df = yf.download(
+                symbol,
+                period="1d",
+                interval="1m",
+                progress=False,
+                threads=False
+            )
+            if df is not None and len(df) > 50:
+                return df
+        except:
+            pass
+        time.sleep(1)
+
+    return None
 
 def calculate_vwap(df):
     df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
