@@ -31,10 +31,6 @@ def get_intraday():
 
     return df
 
-    except Exception:
-        return None
-
-
 spy = get_intraday()
 
 if spy is None:
