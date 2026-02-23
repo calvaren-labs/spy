@@ -16,12 +16,13 @@ st.caption("v1.0 – Continuous Score + Late-Day Amplification")
 # ----------------------------
 @st.cache_data(ttl=60)
 def get_intraday():
-    try:
-        ticker = yf.Ticker("SPY")
-        df = ticker.history(period="1d", interval="5m", prepost=False)
+    ticker = yf.Ticker("SPY")
+    df = ticker.history(period="1d", interval="5m", prepost=False)
 
-        if df.empty:
-            return None
+    if df is None or df.empty:
+        raise ValueError("Empty dataset")
+
+    return df
 
         df = df.reset_index()
         df["Datetime"] = pd.to_datetime(df["Datetime"])
