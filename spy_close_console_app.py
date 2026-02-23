@@ -81,8 +81,29 @@ def calculate_vwap(df):
 
     df = df.copy()
 
+    required_cols = ["High", "Low", "Close", "Volume"]
+    for col in required_cols:
+        if col not in df.columns:
+            return None
+
+    # Ensure numeric
+    df["High"] = pd.to_numeric(df["High"], errors="coerce")
+    df["Low"] = pd.to_numeric(df["Low"], errors="coerce")
+    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+    df["Volume"] = pd.to_numeric(df["Volume"], errors="coerce")
+
+    df.dropna(subset=["High", "Low", "Close", "Volume"], inplace=True)
+
+    if len(df) == 0:
+        return None
+
     df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
-    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+
+    vol_cum = df["Volume"].cumsum()
+    if (vol_cum == 0).all():
+        return None
+
+    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / vol_cum
 
     return df
 
