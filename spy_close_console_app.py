@@ -18,7 +18,7 @@ st.caption("v1.0 – Continuous Score + Late-Day Amplification")
 def get_intraday():
     try:
         ticker = yf.Ticker("SPY")
-        df = ticker.history(period="1d", interval="1m", prepost=False)
+        df = ticker.history(period="1d", interval="5m", prepost=False)
 
         if df.empty:
             return None
