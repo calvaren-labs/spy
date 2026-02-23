@@ -14,7 +14,7 @@ st.caption("v1.0 – Continuous Score + Late-Day Amplification")
 # ----------------------------
 # Data Fetch (cached to reduce Yahoo rate limits)
 # ----------------------------
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def get_intraday():
     try:
         ticker = yf.Ticker("SPY")
