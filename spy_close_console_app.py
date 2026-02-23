@@ -198,7 +198,14 @@ def classify(spy_df, vix_df):
     if range_pos < LOW_ACCEPTANCE:
         score -= 1
     if vix_change > 0:
-        score -= 1
+    score -= 1
+
+# ----- LATE-DAY AMPLIFICATION -----
+now = datetime.now(pytz.timezone("US/Eastern"))
+
+if now.hour == 15 and now.minute >= 30:
+    time_progress = (now.minute - 30) / 30
+    score *= (1 + 0.4 * time_progress)
 
     if score >= 2:
         bias, arrow, color = "CONTINUATION UP", "↑", "#00ff99"
