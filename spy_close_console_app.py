@@ -21,7 +21,7 @@ st.caption(MODEL_VERSION)
 # DATA FUNCTIONS (Rate-Limit Safe)
 # -------------------------------
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=300)
 def get_intraday(symbol):
     try:
         ticker = yf.Ticker(symbol)
