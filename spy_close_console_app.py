@@ -10,6 +10,7 @@ from datetime import datetime
 import pytz
 from streamlit_autorefresh import st_autorefresh
 from sklearn.linear_model import LogisticRegression
+import time
 
 SYMBOL = "SPY"
 VIX_SYMBOL = "^VIX"
@@ -37,11 +38,9 @@ if now.hour > 15 or (now.hour == 15 and now.minute >= 25):
     st_autorefresh(interval=30 * 1000, key="late_refresh")
 
 # ---------------- FUNCTIONS ----------------
-import time
 
 @st.cache_data(ttl=30)
 def get_intraday(symbol):
-    import time
 
     # Try 1-minute first
     for attempt in range(2):
@@ -54,7 +53,6 @@ def get_intraday(symbol):
                 threads=False
             )
             if df is not None and len(df) > 5:
-                st.write("Using 1m data")
                 return df
         except:
             pass
@@ -70,15 +68,31 @@ def get_intraday(symbol):
             threads=False
         )
         if df is not None and len(df) > 2:
-            st.write("Using 5m fallback")
             return df
     except:
         pass
 
     return None
 
+
+def calculate_vwap(df):
+    if df is None or len(df) == 0:
+        return None
+
+    df = df.copy()
+
+    df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
+    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+
+    return df
+
+
 def build_model(days=45):
     spy = yf.download(SYMBOL, period=f"{days}d", interval="1m", progress=False)
+
+    if spy is None or len(spy) < 300:
+        return None
+
     spy["Date"] = spy.index.date
     rows = []
 
@@ -104,6 +118,7 @@ def build_model(days=45):
             continue
 
     df = pd.DataFrame(rows, columns=["vwap_dist", "range_pos", "momentum", "target"])
+
     if len(df) < 10:
         return None
 
@@ -114,8 +129,9 @@ def build_model(days=45):
     model.fit(X, y)
     return model
 
+
 def classify(spy_df, vix_df):
-    # Defensive checks
+
     if spy_df is None or len(spy_df) < 10:
         return 0, 0, 0.5, 0, 0, "NO DATA", "→", "#ffaa00", 50
 
@@ -128,10 +144,7 @@ def classify(spy_df, vix_df):
     day_high = spy_df["High"].max()
     day_low = spy_df["Low"].min()
 
-    if day_high == day_low:
-        range_pos = 0.5
-    else:
-        range_pos = (price - day_low) / (day_high - day_low)
+    range_pos = 0.5 if day_high == day_low else (price - day_low) / (day_high - day_low)
 
     if vix_df is None or len(vix_df) < 30:
         vix_change = 0
@@ -159,31 +172,39 @@ def classify(spy_df, vix_df):
 
     return price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence
 
+
 # ---------------- LOAD DATA ----------------
+
 with st.spinner("Loading live data..."):
-    spy = calculate_vwap(get_intraday(SYMBOL))
-    st.write("Spy raw:", spy)
+    raw_spy = get_intraday(SYMBOL)
+    spy = calculate_vwap(raw_spy)
     vix = get_intraday(VIX_SYMBOL)
 
     price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence = classify(spy, vix)
 
+
 # ---------------- ML PROBABILITY ----------------
+
 model = build_model(45)
 
-if model is not None:
+ml_prob = None
+
+if model is not None and spy is not None and len(spy) > 30:
     momentum = (spy["Close"].iloc[-1] - spy["Close"].iloc[-30]) / spy["Close"].iloc[-30]
     X_live = np.array([[vwap_dist, range_pos, momentum]])
     ml_prob = round(model.predict_proba(X_live)[0][1] * 100, 1)
-else:
-    ml_prob = None
+
 
 # ---------------- METRICS ----------------
+
 col1, col2, col3 = st.columns(3)
 col1.metric("SPY", round(price, 2))
 col2.metric("VWAP", round(vwap, 2))
 col3.metric("Range %", f"{round(range_pos*100,1)}%")
 
+
 # ---------------- DIRECTION PANEL ----------------
+
 st.markdown(f"""
 <div style='padding:20px; background-color:#1c1f26; border-radius:8px; text-align:center;'>
 <h1 style='color:{color}; font-size:48px;'>{arrow}</h1>
@@ -191,6 +212,7 @@ st.markdown(f"""
 <h3 style='color:white;'>Confidence: {confidence}%</h3>
 </div>
 """, unsafe_allow_html=True)
+
 
 if ml_prob is not None:
     st.markdown("### ML Probability Close Higher")
@@ -201,7 +223,9 @@ if ml_prob is not None:
     else:
         st.warning(f"{ml_prob}%")
 
+
 # ---------------- INTRADAY CHART ----------------
+
 if spy is not None and len(spy) > 0:
     fig = go.Figure()
     fig.add_trace(
