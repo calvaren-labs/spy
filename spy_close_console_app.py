@@ -154,6 +154,7 @@ def classify(spy_df, vix_df):
 # ---------------- LOAD DATA ----------------
 with st.spinner("Loading live data..."):
     spy = calculate_vwap(get_intraday(SYMBOL))
+    st.write("Spy raw:", spy)
     vix = get_intraday(VIX_SYMBOL)
 
     price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence = classify(spy, vix)
