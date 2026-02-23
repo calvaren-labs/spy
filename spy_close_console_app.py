@@ -83,18 +83,30 @@ def build_model(days=45):
     return model
 
 def classify(spy_df, vix_df):
+    # Defensive checks
+    if spy_df is None or len(spy_df) < 10:
+        return 0, 0, 0.5, 0, 0, "NO DATA", "→", "#ffaa00", 50
+
     latest = spy_df.iloc[-1]
     price = latest["Close"]
     vwap = latest["VWAP"]
 
     vwap_dist = (price - vwap) / vwap
+
     day_high = spy_df["High"].max()
     day_low = spy_df["Low"].min()
-    range_pos = (price - day_low) / (day_high - day_low)
 
-    vix_change = (
-        vix_df["Close"].iloc[-1] - vix_df["Close"].iloc[-30]
-    ) / vix_df["Close"].iloc[-30]
+    if day_high == day_low:
+        range_pos = 0.5
+    else:
+        range_pos = (price - day_low) / (day_high - day_low)
+
+    if vix_df is None or len(vix_df) < 30:
+        vix_change = 0
+    else:
+        vix_change = (
+            vix_df["Close"].iloc[-1] - vix_df["Close"].iloc[-30]
+        ) / vix_df["Close"].iloc[-30]
 
     score = 0
     if vwap_dist > VWAP_THRESHOLD: score += 1
