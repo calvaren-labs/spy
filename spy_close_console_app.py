@@ -33,8 +33,9 @@ def get_intraday():
 
 try:
     spy = get_intraday()
-except Exception:
-    st.warning("Data temporarily unavailable (Yahoo rate limit or outside market hours).")
+    st.write("Data loaded:", len(spy))
+except Exception as e:
+    st.error(f"Data error: {e}")
     st.stop()
 
 # ----------------------------
