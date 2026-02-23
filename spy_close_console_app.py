@@ -185,19 +185,18 @@ def classify(spy_df, vix_df):
             vix_close.iloc[-30]
         )
 
+    # ----- CONTINUOUS SCORING -----
+
     score = 0
-    if vwap_dist > VWAP_THRESHOLD:
-        score += 1
-    if range_pos > RANGE_ACCEPTANCE:
-        score += 1
-    if vix_change < 0:
-        score += 1
-    if vwap_dist < -VWAP_THRESHOLD:
-        score -= 1
-    if range_pos < LOW_ACCEPTANCE:
-        score -= 1
-    if vix_change > 0:
-        score -= 1
+
+    # VWAP contribution
+    score += vwap_dist / VWAP_THRESHOLD
+
+    # Range contribution (centered at 0.5)
+    score += (range_pos - 0.5) * 2
+
+    # VIX contribution (inverted because rising VIX = bearish)
+    score -= vix_change * 5
 
     # ----- LATE-DAY AMPLIFICATION -----
     now = datetime.now(pytz.timezone("US/Eastern"))
@@ -212,7 +211,7 @@ def classify(spy_df, vix_df):
     else:
         bias, arrow, color = "MIXED / CHOP", "→", "#ffaa00"
 
-    confidence = int((abs(score) / 3) ** 1.6 * 90)
+    confidence = int(min(90, (abs(score) ** 1.3) * 18))
 
     return price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence
 
