@@ -157,4 +157,4 @@ else:
         unsafe_allow_html=True
     )
 
-    st.line_chart(spy["Close"])
+    st.line_chart(spy["Close"], height=300)
