@@ -187,17 +187,17 @@ def classify(spy_df, vix_df):
         )
 
     score = 0
-    if vwap_dist > VWAP_THRESHOLD:
-        score += 1
-    if range_pos > RANGE_ACCEPTANCE:
-        score += 1
-    if vix_change < 0:
-        score += 1
-    if vwap_dist < -VWAP_THRESHOLD:
-        score -= 1
-    if range_pos < LOW_ACCEPTANCE:
-        score -= 1
-    if vix_change > 0:
+if vwap_dist > VWAP_THRESHOLD:
+    score += 1
+if range_pos > RANGE_ACCEPTANCE:
+    score += 1
+if vix_change < 0:
+    score += 1
+if vwap_dist < -VWAP_THRESHOLD:
+    score -= 1
+if range_pos < LOW_ACCEPTANCE:
+    score -= 1
+if vix_change > 0:
     score -= 1
 
 # ----- LATE-DAY AMPLIFICATION -----
