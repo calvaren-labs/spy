@@ -13,38 +13,40 @@ VIX_SYMBOL = "^VIX"
 VWAP_THRESHOLD = 0.002  # 0.2%
 MODEL_VERSION = "v1.0 – Continuous Score + Late-Day Amplification"
 
+st.set_page_config(layout="wide")
+st.title("SPY 3:30pm Close Console")
+st.caption(MODEL_VERSION)
+
 # -------------------------------
-# DATA FUNCTIONS
+# DATA FUNCTIONS (Rate-Limit Safe)
 # -------------------------------
 
+@st.cache_data(ttl=120)
 def get_intraday(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1d", interval="1m", prepost=True)
+        df = ticker.history(period="1d", interval="1m")
 
         if df is None or len(df) == 0:
             return None
 
-        df = df.dropna()
+        return df.dropna()
 
-        return df
-
-    except Exception as e:
-        st.write("Data error:", e)
+    except Exception:
+        # Handles Yahoo rate limits gracefully
         return None
 
 
 def calculate_vwap(df):
     df = df.copy()
 
-    # Ensure numeric columns
+    # Force numeric types
     for col in ["High", "Low", "Close", "Volume"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df = df.dropna(subset=["High", "Low", "Close", "Volume"])
 
     df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
-
     cumulative_volume = df["Volume"].cumsum()
     cumulative_tp_volume = (df["TP"] * df["Volume"]).cumsum()
 
@@ -54,7 +56,7 @@ def calculate_vwap(df):
 
 
 # -------------------------------
-# CLASSIFICATION ENGINE
+# MODEL ENGINE
 # -------------------------------
 
 def classify(spy_df, vix_df):
@@ -71,9 +73,10 @@ def classify(spy_df, vix_df):
 
     day_high = spy_df["High"].max()
     day_low = spy_df["Low"].min()
+
     range_pos = 0.5 if day_high == day_low else (price - day_low) / (day_high - day_low)
 
-    # VIX change (30 min lookback)
+    # VIX 30-min change
     if vix_df is None or len(vix_df) < 30:
         vix_change = 0
     else:
@@ -87,13 +90,8 @@ def classify(spy_df, vix_df):
 
     score = 0
 
-    # VWAP contribution
     score += vwap_dist / VWAP_THRESHOLD
-
-    # Range contribution (centered at 0.5)
     score += (range_pos - 0.5) * 2
-
-    # VIX contribution (rising VIX = bearish)
     score -= vix_change * 5
 
     # -------------------------------
@@ -101,6 +99,7 @@ def classify(spy_df, vix_df):
     # -------------------------------
 
     now = datetime.now(pytz.timezone("US/Eastern"))
+
     if now.hour == 15 and now.minute >= 30:
         time_progress = (now.minute - 30) / 30
         score *= (1 + 0.4 * time_progress)
@@ -124,33 +123,22 @@ def classify(spy_df, vix_df):
 
     confidence = int(min(90, abs(score) * 20))
 
-    # Internal logging for testing
-    print({
-        "score": round(score, 3),
-        "vwap_dist": round(vwap_dist, 4),
-        "range_pos": round(range_pos, 3),
-        "vix_change": round(vix_change, 4),
-        "confidence": confidence
-    })
-
     return price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence
 
 
 # -------------------------------
-# STREAMLIT APP
+# RUN APP
 # -------------------------------
-
-st.set_page_config(layout="wide")
-st.title("SPY 3:30pm Close Console")
-st.caption(MODEL_VERSION)
 
 spy_raw = get_intraday(SYMBOL)
 vix_raw = get_intraday(VIX_SYMBOL)
 
-if spy_raw is not None:
+if spy_raw is None:
+    st.warning("Data temporarily unavailable (Yahoo rate limit or outside market hours).")
+else:
     spy = calculate_vwap(spy_raw)
-    result = classify(spy, vix_raw)
 
+    result = classify(spy, vix_raw)
     price, vwap, range_pos, vwap_dist, score, bias, arrow, color, confidence = result
 
     col1, col2, col3 = st.columns(3)
@@ -170,5 +158,3 @@ if spy_raw is not None:
     )
 
     st.line_chart(spy["Close"])
-else:
-    st.warning("No data available.")
