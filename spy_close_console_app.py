@@ -41,7 +41,10 @@ import time
 
 @st.cache_data(ttl=30)
 def get_intraday(symbol):
-    for attempt in range(3):
+    import time
+
+    # Try 1-minute first
+    for attempt in range(2):
         try:
             df = yf.download(
                 symbol,
@@ -50,24 +53,29 @@ def get_intraday(symbol):
                 progress=False,
                 threads=False
             )
-            if df is not None and len(df) > 50:
+            if df is not None and len(df) > 5:
+                st.write("Using 1m data")
                 return df
         except:
             pass
         time.sleep(1)
 
+    # Fallback to 5-minute
+    try:
+        df = yf.download(
+            symbol,
+            period="1d",
+            interval="5m",
+            progress=False,
+            threads=False
+        )
+        if df is not None and len(df) > 2:
+            st.write("Using 5m fallback")
+            return df
+    except:
+        pass
+
     return None
-
-def calculate_vwap(df):
-    if df is None or len(df) == 0:
-        return None
-
-    df = df.copy()
-
-    df["TP"] = (df["High"] + df["Low"] + df["Close"]) / 3
-    df["VWAP"] = (df["TP"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
-
-    return df
 
 def build_model(days=45):
     spy = yf.download(SYMBOL, period=f"{days}d", interval="1m", progress=False)
