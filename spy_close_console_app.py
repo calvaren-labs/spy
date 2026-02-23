@@ -170,12 +170,27 @@ def classify(spy_df, vix_df):
 
     range_pos = 0.5 if day_high == day_low else (price - day_low) / (day_high - day_low)
 
-    if vix_df is None or len(vix_df) < 30:
+  # ---- VIX handling ----
+if vix_df is None or len(vix_df) < 30:
+    vix_change = 0
+else:
+    vix_df = vix_df.copy()
+
+    if isinstance(vix_df.columns, pd.MultiIndex):
+        vix_df.columns = vix_df.columns.get_level_values(0)
+
+    if "Close" not in vix_df.columns:
         vix_change = 0
     else:
-        vix_change = (
-            vix_df["Close"].iloc[-1] - vix_df["Close"].iloc[-30]
-        ) / vix_df["Close"].iloc[-30]
+        close_series = pd.to_numeric(vix_df["Close"], errors="coerce")
+        close_series = close_series.dropna()
+
+        if len(close_series) < 30:
+            vix_change = 0
+        else:
+            latest = float(close_series.iloc[-1])
+            prior = float(close_series.iloc[-30])
+            vix_change = (latest - prior) / prior
 
     score = 0
     if vwap_dist > VWAP_THRESHOLD: score += 1
